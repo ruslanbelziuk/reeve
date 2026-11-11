@@ -45,6 +45,13 @@ pub const SSL_MODULES: &[(&str, &str)] = &[
     ("socache_shmcb_module", "mod_socache_shmcb.so"),
 ];
 
+/// Loaded on top of [`BASE_MODULES`] whenever a server has a reverse-proxy
+/// vhost. mod_proxy alone has no handler for `http://` upstreams, so a
+/// `ProxyPass` without these 500s every request (`AH01144: No protocol
+/// handler was valid`). Still pickable for servers without a proxy vhost
+/// (a `RewriteRule … [P]` in .htaccess needs it too).
+pub const PROXY_MODULES: &[(&str, &str)] = &[("proxy_http_module", "mod_proxy_http.so")];
+
 /// The three MPMs are mutually exclusive — loading a second one is a hard
 /// startup failure (`AH00534: Configuration error: More than one MPM loaded`),
 /// so reeve pins mpm_event in [`BASE_MODULES`] and keeps every `mpm_*` out of
@@ -393,10 +400,16 @@ fn edit_distance(a: &str, b: &str) -> usize {
 }
 
 /// The `LoadModule` set for a server, in emit order: base, SSL (when the server
-/// serves HTTPS), then the opted-in modules and their prerequisites
-/// alphabetically. Deduped, and entries whose `.so` is missing are dropped —
-/// the same tolerance the base list has always had.
-pub fn load_list(brew: &Brew, server: &Server, needs_ssl: bool) -> Vec<(String, PathBuf)> {
+/// serves HTTPS), proxy (when it has a reverse-proxy vhost), then the opted-in
+/// modules and their prerequisites alphabetically. Deduped, and entries whose
+/// `.so` is missing are dropped — the same tolerance the base list has always
+/// had.
+pub fn load_list(
+    brew: &Brew,
+    server: &Server,
+    needs_ssl: bool,
+    needs_proxy: bool,
+) -> Vec<(String, PathBuf)> {
     let dir = modules_dir(brew);
     let mut emitted: BTreeSet<String> = BTreeSet::new();
     let mut out = Vec::new();
@@ -414,6 +427,11 @@ pub fn load_list(brew: &Brew, server: &Server, needs_ssl: bool) -> Vec<(String, 
     }
     if needs_ssl {
         for (name, _) in SSL_MODULES {
+            push((*name).to_string(), &mut out);
+        }
+    }
+    if needs_proxy {
+        for (name, _) in PROXY_MODULES {
             push((*name).to_string(), &mut out);
         }
     }

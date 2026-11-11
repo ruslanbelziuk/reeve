@@ -417,8 +417,13 @@ pub fn set_apache_modules(name: &str, modules: Vec<String>) -> Result<ModuleChan
     let brew = Brew::detect()?;
     // Both snapshots ask for the SSL set so the reported diff is about the
     // user's choice, not about whether this server happens to serve HTTPS —
-    // the SSL modules cancel out between the two.
-    let before: Vec<String> = apache_modules::load_list(&brew, &server, true)
+    // the SSL modules cancel out between the two. The proxy set can be picked
+    // by hand too, so use whether the server really has a proxy vhost —
+    // enabling proxy_http where nothing auto-loads it still reports as added.
+    let needs_proxy = crate::park::effective_vhosts_for(&load_state()?, name)
+        .iter()
+        .any(|v| v.is_proxy());
+    let before: Vec<String> = apache_modules::load_list(&brew, &server, true, needs_proxy)
         .into_iter()
         .map(|(n, _)| n)
         .collect();
@@ -456,7 +461,7 @@ pub fn set_apache_modules(name: &str, modules: Vec<String>) -> Result<ModuleChan
         return Err(e.context(format!("module change rejected for '{name}'")));
     }
 
-    let after: Vec<String> = apache_modules::load_list(&brew, &updated, true)
+    let after: Vec<String> = apache_modules::load_list(&brew, &updated, true, needs_proxy)
         .into_iter()
         .map(|(n, _)| n)
         .collect();
